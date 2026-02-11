@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  tracker:
+    build: .
+    volumes:
+      - ./data:/app/data
+    restart: "no" # One-off task, can run via cron
+    # For user mapping, but let's stick to root first.
+    user: root
