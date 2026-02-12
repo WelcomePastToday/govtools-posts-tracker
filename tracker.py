@@ -3,7 +3,7 @@ import csv
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Set
 
@@ -227,7 +227,7 @@ def append_summary_row(path: Path, row: Dict[str, str]) -> None:
 
 def run_one(p, handle: str, out_dir: Path) -> Dict[str, str]:
     url = BASE_URL + handle
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     result: Dict[str, str] = {
         "timestamp_utc": ts,
@@ -299,7 +299,7 @@ def main():
             return
 
     # Create daily output directory
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out_dir = Path(OUT_ROOT) / today_str
     out_dir.mkdir(parents=True, exist_ok=True)
     
@@ -322,7 +322,7 @@ def main():
             if handle_key in done:
                 # We don't increment consecutive errors on skips, but we don't reset either?
                 # Actually, arguably if we skip, we don't know status. Let's leave count as is.
-                ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 print(f"{ts}\t{handle}\tskipped\t(already done today)")
                 continue
 
