@@ -154,6 +154,20 @@ def classify_account(page) -> str:
                 return label
     return "active_or_visible"
 
+def is_login_screen(page) -> bool:
+    try:
+        # Check for common login prompts/buttons
+        if page.locator('[data-testid="loginButton"]').count() > 0 or \
+           "Sign in to X" in page.title() or \
+           "Log in" in page.title():
+            return True
+        # Check specifically for "Sign in to subscribe" or similar overlays that block content
+        if page.get_by_text("Sign in to X").count() > 0:
+            return True
+    except:
+        pass
+    return False
+
 def extract_posts_count(page) -> str:
     try:
         txt = page.inner_text("body")
@@ -240,24 +254,21 @@ def run_one(p, handle: str, out_dir: Path) -> Dict[str, str]:
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_timeout(POST_NAV_WAIT_MS)
 
-        result["status"] = classify_account(page)
-        result["posts_count"] = extract_posts_count(page)
-        result["bio"] = extract_bio(page)
-        result["has_visible_posts"] = "yes" if has_any_visible_posts(page) else "no"
+        if is_login_screen(page):
+            result["status"] = "login_required"
+            result["error"] = "login_wall"
+        else:
+            result["status"] = classify_account(page)
+            result["posts_count"] = extract_posts_count(page)
+            result["bio"] = extract_bio(page)
+            result["has_visible_posts"] = "yes" if has_any_visible_posts(page) else "no"
 
-        # Save screenshot inside the day folder, maybe group by handle too if desired, 
-        # but daily folder structure implies data/YYYY-MM-DD/handle/screenshot.png
-        # Let's keep structure simple: data/YYYY-MM-DD/screenshots/handle_ts.png or data/YYYY-MM-DD/handle_ts.png
-        # The prompt asked for "screenshot of every social media accounts homepage" every day.
-        # User might want easy browsing.
-        # Let's do: data/YYYY-MM-DD/screenshots/<handle>.png
-        
-        screenshots_dir = out_dir / "screenshots"
-        screenshots_dir.mkdir(parents=True, exist_ok=True)
-        
-        out_path = screenshots_dir / f"{handle}_{ts}.png"
-        screenshot_top(page, out_path)
-        result["screenshot"] = str(out_path)
+            screenshots_dir = out_dir / "screenshots"
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            
+            out_path = screenshots_dir / f"{handle}_{ts}.png"
+            screenshot_top(page, out_path)
+            result["screenshot"] = str(out_path)
 
         context.close()
         browser.close()
@@ -301,11 +312,16 @@ def main():
     print(f"Already processed today ({today_str}): {len(done)}")
     print("No scrolling. Top-only clip. Ctrl+C to stop.")
 
+    consecutive_login_errors = 0
+    MAX_CONSECUTIVE_LOGIN_ERRORS = 5
+
     with sync_playwright() as p:
         for handle in handles:
             handle_key = handle.lower()
 
             if handle_key in done:
+                # We don't increment consecutive errors on skips, but we don't reset either?
+                # Actually, arguably if we skip, we don't know status. Let's leave count as is.
                 ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
                 print(f"{ts}\t{handle}\tskipped\t(already done today)")
                 continue
@@ -319,6 +335,16 @@ def main():
                 f'posts={row["posts_count"] or "?"}\tvisible_posts={row["has_visible_posts"] or "?"}\t'
                 f'err={row["error"] or "-"}'
             )
+
+            if row["status"] == "login_required" or row["error"] == "login_wall":
+                consecutive_login_errors += 1
+            else:
+                consecutive_login_errors = 0
+            
+            if consecutive_login_errors >= MAX_CONSECUTIVE_LOGIN_ERRORS:
+                print(f"\n[!] Process aborted: Encountered {MAX_CONSECUTIVE_LOGIN_ERRORS} consecutive login walls/errors.")
+                print("    This likely means Twitter is blocking the requests or requiring authentication.")
+                break
 
             elapsed = time.time() - started
             time.sleep(max(0, INTERVAL_SECONDS - elapsed))
