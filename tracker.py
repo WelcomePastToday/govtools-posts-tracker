@@ -364,6 +364,10 @@ def main():
             started = time.time()
             row = run_one(p, handle, out_dir)
             append_summary_row(summary_path, row)
+            
+            # Also append to master_log.csv in the data root
+            master_log_path = Path(OUT_ROOT) / "master_log.csv"
+            append_summary_row(master_log_path, row)
 
             print(
                 f'{row["timestamp_utc"]}\t{row["handle"]}\t{row["status"]}\t'
