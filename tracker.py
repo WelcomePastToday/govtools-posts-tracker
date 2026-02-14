@@ -3,6 +3,7 @@ import csv
 import os
 import re
 import time
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Set
@@ -227,7 +228,8 @@ def append_summary_row(path: Path, row: Dict[str, str]) -> None:
 
 def run_one(p, handle: str, out_dir: Path) -> Dict[str, str]:
     url = BASE_URL + handle
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Timestamp down to microseconds
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
 
     result: Dict[str, str] = {
         "timestamp_utc": ts,
@@ -310,19 +312,25 @@ def main():
 
     print(f"Loaded {len(handles)} handles from {CSV_PATH}")
     print(f"Already processed today ({today_str}): {len(done)}")
-    print("No scrolling. Top-only clip. Ctrl+C to stop.")
+    print("No scrolling. Top-only clip. Ctrl+C to stop. Intelligent backoff enabled.")
 
     consecutive_login_errors = 0
     MAX_CONSECUTIVE_LOGIN_ERRORS = 5
+    
+    # Timing configuration
+    MIN_SLEEP = 33.0
+    MAX_SLEEP = 67.0
+    
+    # Backoff multiplier
+    backoff_multiplier = 1.0
 
     with sync_playwright() as p:
         for handle in handles:
             handle_key = handle.lower()
 
             if handle_key in done:
-                # We don't increment consecutive errors on skips, but we don't reset either?
-                # Actually, arguably if we skip, we don't know status. Let's leave count as is.
-                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                # Use microsecond precision for skip logs too
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
                 print(f"{ts}\t{handle}\tskipped\t(already done today)")
                 continue
 
@@ -336,18 +344,41 @@ def main():
                 f'err={row["error"] or "-"}'
             )
 
+            is_error = False
             if row["status"] == "login_required" or row["error"] == "login_wall":
+                is_error = True
                 consecutive_login_errors += 1
             else:
                 consecutive_login_errors = 0
             
+            # Intelligent Backoff Logic
+            if is_error:
+                # Exponential backoff: 2x, 4x, 8x...
+                # But limited to reasonable bounds?
+                # User said "back off intelligently".
+                # Let's double the multiplier on error.
+                backoff_multiplier = min(backoff_multiplier * 2.0, 16.0) # Cap at 16x (~10-20 mins)
+            else:
+                # Reset on success
+                backoff_multiplier = 1.0
+
             if consecutive_login_errors >= MAX_CONSECUTIVE_LOGIN_ERRORS:
                 print(f"\n[!] Process aborted: Encountered {MAX_CONSECUTIVE_LOGIN_ERRORS} consecutive login walls/errors.")
                 print("    This likely means Twitter is blocking the requests or requiring authentication.")
                 break
 
             elapsed = time.time() - started
-            time.sleep(max(0, INTERVAL_SECONDS - elapsed))
+            
+            # Random sleep with microsecond precision logic
+            base_sleep = random.uniform(MIN_SLEEP, MAX_SLEEP)
+            target_sleep = base_sleep * backoff_multiplier
+            
+            # Deduct elapsed time
+            actual_sleep = max(0.000001, target_sleep - elapsed)
+            
+            # Print with high precision
+            print(f"    Sleeping {actual_sleep:.6f}s (Multiplier: {backoff_multiplier}x)")
+            time.sleep(actual_sleep)
 
 if __name__ == "__main__":
     main()
