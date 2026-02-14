@@ -100,24 +100,38 @@ def read_handles(csv_path: str) -> list[str]:
             out.append(h)
     return out
 
-def load_already_done(summary_path: Path) -> Set[str]:
+def load_already_done(summary_path: Path) -> Dict[str, datetime]:
     """
-    Reads summary.csv and returns handles already processed (any row).
-    This allows skipping handles if re-running on the same day.
+    Reads summary.csv and returns map of {handle: last_timestamp} for today.
     """
-    done: Set[str] = set()
+    done: Dict[str, datetime] = {}
     if not summary_path.exists():
         return done
 
     with open(summary_path, "r", encoding="utf-8", newline="") as f:
-        # summary is ;;; separated, not a normal CSV dialect
+        # summary is ;;; separated
         for line in f:
             line = line.strip()
             if not line or line.startswith("timestamp_utc;;;"):
                 continue
             parts = line.split(";;;")
             if len(parts) >= 2:
-                done.add(parts[1].strip().lower())
+                ts_str = parts[0].strip()
+                handle = parts[1].strip().lower()
+                
+                # Try parsing timestamp
+                dt = None
+                # Support both new microsecond format and old format
+                for fmt in ("%Y%m%dT%H%M%S.%fZ", "%Y%m%dT%H%M%SZ"):
+                    try:
+                        dt = datetime.strptime(ts_str, fmt).replace(tzinfo=timezone.utc)
+                        break
+                    except ValueError:
+                        continue
+                
+                if dt:
+                    if handle not in done or dt > done[handle]:
+                        done[handle] = dt
     return done
 
 def classify_account(page) -> str:
@@ -328,10 +342,23 @@ def main():
         for handle in handles:
             handle_key = handle.lower()
 
+            # Check for skip based on 12h rule
+            should_skip = False
+            skip_reason = ""
+            REPROCESS_INTERVAL = 12 * 3600  # 12 hours
+
             if handle_key in done:
-                # Use microsecond precision for skip logs too
+                last_ts = done[handle_key]
+                now = datetime.now(timezone.utc)
+                age_seconds = (now - last_ts).total_seconds()
+                
+                if age_seconds < REPROCESS_INTERVAL:
+                    should_skip = True
+                    skip_reason = f"(done {age_seconds/3600:.1f}h ago)"
+            
+            if should_skip:
                 ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-                print(f"{ts}\t{handle}\tskipped\t(already done today)")
+                print(f"{ts}\t{handle}\tskipped\t{skip_reason}")
                 continue
 
             started = time.time()
