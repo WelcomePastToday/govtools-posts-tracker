@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.govtools.tracker</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/macbook/Documents/GIT/govtools/govtools-posts-tracker/run_robust.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/macbook/Documents/GIT/govtools/govtools-posts-tracker</string>
+
+    <!-- Run every day at 12:00 PM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>/Users/macbook/Documents/GIT/govtools/govtools-posts-tracker/tracker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/macbook/Documents/GIT/govtools/govtools-posts-tracker/tracker.error.log</string>
+
+    <!-- Run as soon as the computer wakes up if the time was missed -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
