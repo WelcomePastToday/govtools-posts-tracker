@@ -17,12 +17,45 @@ while true; do
         echo "[$(date '+%H:%M:%S')] Network UP. Launching tracker..."
         
         # Run the tracker; caffeinate -i prevents idle sleep
+        # Exit code 0 means success
         caffeinate -i python tracker.py
         EXIT_CODE=$?
         
         if [ $EXIT_CODE -eq 0 ]; then
-            echo "✅ Tracker finished full list successfully!"
-            exit 0
+            echo "✅ Tracker processed list successfully!"
+            
+            # --- SYNC TO SERVER ---
+            # Upload data to govtools.org so it can be visualized
+            if command -v rsync &> /dev/null; then
+                echo "Syncing data to server..."
+                # Sync data/ folder to server. 
+                # Preserves timestamps (-t), recursive (-r), compress (-z), verbose (-v), display progress (--progress)
+                # Using --update to only copy newer files
+                rsync -rtzv --update --progress ./data/ deploy@govtools.org:/apps/govtools-posts-tracker/data/
+                if [ $? -eq 0 ]; then
+                    echo "Data sync complete."
+                else
+                    echo "Data sync failed (rsync error)."
+                fi
+            else
+                echo "rsync not found, skipping upload."
+            fi
+            # -----------------------
+
+            # Reset fail count on success
+            FAIL_COUNT=0
+            
+            # Sleep until next scheduled run (e.g. daily run logic handled inside python script? No, external loop handles it)
+            # Tracker.py only runs once through list.
+            # If we want continuous loop, we should sleep for X hours.
+            # But the user might be running this via launchd now? 
+            # If launchd runs this script, and this script loops forever, that's fine.
+            # Assuming 'Success' means 'Done for now'.
+            
+            # Let's wait 6 hours before next pass if success
+            echo "Sleeping for 6 hours..."
+            sleep 21600
+            continue 
         fi
         
         echo "⚠️ Tracker exited with error code $EXIT_CODE."
