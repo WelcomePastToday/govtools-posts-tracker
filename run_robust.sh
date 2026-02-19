@@ -31,7 +31,8 @@ while true; do
                 # Sync data/ folder to server. 
                 # Preserves timestamps (-t), recursive (-r), compress (-z), verbose (-v), display progress (--progress)
                 # Using --update to only copy newer files
-                rsync -rtzv --update --progress ./data/ deploy@govtools.org:/apps/govtools-posts-tracker/data/
+                # TARGET PATH: Relative to home dir (which is mapped correctly for Caddy)
+                rsync -rtzv --update --progress ./data/ deploy@govtools.org:govtools-posts-tracker/data/
                 if [ $? -eq 0 ]; then
                     echo "Data sync complete."
                 else
