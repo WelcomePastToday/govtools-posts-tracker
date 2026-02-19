@@ -7,6 +7,7 @@ import random
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Set
+from collections import deque
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -282,7 +283,9 @@ def run_one(p, handle: str, out_dir: Path) -> Dict[str, str]:
             screenshots_dir = out_dir / "screenshots"
             screenshots_dir.mkdir(parents=True, exist_ok=True)
             
-            out_path = screenshots_dir / f"{handle}_{ts}.png"
+            # Format: Handle_YYYY-MM-DD_HHMMZ.png
+            readable_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%MZ")
+            out_path = screenshots_dir / f"{handle}_{readable_ts}.png"
             screenshot_top(page, out_path)
             result["screenshot"] = str(out_path)
 
@@ -340,6 +343,7 @@ def main():
 
     processed_count = 0
     cumulative_iter_time = 0.0
+    recent_durations = deque(maxlen=5)
     total_handles = len(handles)
 
     with sync_playwright() as p:
@@ -409,7 +413,9 @@ def main():
             # But let's use actual elapsed + actual sleep to be precise
             total_item_duration = elapsed_processing + actual_sleep
             cumulative_iter_time += total_item_duration
-            avg_time = cumulative_iter_time / processed_count
+            
+            recent_durations.append(total_item_duration)
+            avg_time = sum(recent_durations) / len(recent_durations)
             
             # ETA calculation
             remaining_items = total_handles - (i + 1)
@@ -424,7 +430,7 @@ def main():
                 f'err={row["error"] or "-"}'
             )
 
-            sleep_info = f"Sleep: {actual_sleep:.1f}s ({backoff_multiplier}x)"
+            sleep_info = f"Sleep: {actual_sleep:.6f}s ({backoff_multiplier}x)"
             progress_info = f"[{i+1}/{total_handles}] ETA: {eta_str}"
             
             print(f"{log_line} | {sleep_info} | {progress_info}")
