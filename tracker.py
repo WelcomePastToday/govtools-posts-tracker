@@ -4,7 +4,7 @@ import os
 import re
 import time
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Set
 
@@ -338,8 +338,12 @@ def main():
     # Backoff multiplier
     backoff_multiplier = 1.0
 
+    processed_count = 0
+    cumulative_iter_time = 0.0
+    total_handles = len(handles)
+
     with sync_playwright() as p:
-        for handle in handles:
+        for i, handle in enumerate(handles):
             handle_key = handle.lower()
 
             # Check for skip based on 12h rule
@@ -358,7 +362,9 @@ def main():
             
             if should_skip:
                 ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-                print(f"{ts}\t{handle}\tskipped\t{skip_reason}")
+                # print(f"{ts}\t{handle}\tskipped\t{skip_reason}")
+                # Optional: Show progress even for skips
+                print(f"[{i+1}/{total_handles}] {ts} {handle} skipped {skip_reason}")
                 continue
 
             started = time.time()
@@ -369,12 +375,7 @@ def main():
             master_log_path = Path(OUT_ROOT) / "master_log.csv"
             append_summary_row(master_log_path, row)
 
-            print(
-                f'{row["timestamp_utc"]}\t{row["handle"]}\t{row["status"]}\t'
-                f'posts={row["posts_count"] or "?"}\tvisible_posts={row["has_visible_posts"] or "?"}\t'
-                f'err={row["error"] or "-"}'
-            )
-
+            # Backoff Logic
             is_error = False
             if row["status"] == "login_required" or row["error"] == "login_wall":
                 is_error = True
@@ -382,15 +383,9 @@ def main():
             else:
                 consecutive_login_errors = 0
             
-            # Intelligent Backoff Logic
             if is_error:
-                # Exponential backoff: 2x, 4x, 8x...
-                # But limited to reasonable bounds?
-                # User said "back off intelligently".
-                # Let's double the multiplier on error.
-                backoff_multiplier = min(backoff_multiplier * 2.0, 16.0) # Cap at 16x (~10-20 mins)
+                backoff_multiplier = min(backoff_multiplier * 2.0, 16.0)
             else:
-                # Reset on success
                 backoff_multiplier = 1.0
 
             if consecutive_login_errors >= MAX_CONSECUTIVE_LOGIN_ERRORS:
@@ -398,17 +393,41 @@ def main():
                 print("    This likely means Twitter is blocking the requests or requiring authentication.")
                 break
 
-            elapsed = time.time() - started
+            # Print stats
+            processed_count += 1
+            elapsed_processing = time.time() - started
             
             # Random sleep with microsecond precision logic
             base_sleep = random.uniform(MIN_SLEEP, MAX_SLEEP)
             target_sleep = base_sleep * backoff_multiplier
             
-            # Deduct elapsed time
-            actual_sleep = max(0.000001, target_sleep - elapsed)
+            # Actual sleep needed to meet target
+            actual_sleep = max(0.000001, target_sleep - elapsed_processing)
             
-            # Print with high precision
-            print(f"    Sleeping {actual_sleep:.6f}s (Multiplier: {backoff_multiplier}x)")
+            # Update average time per item (processing + sleep)
+            # We use target_sleep mainly because that's the dominant factor
+            # But let's use actual elapsed + actual sleep to be precise
+            total_item_duration = elapsed_processing + actual_sleep
+            cumulative_iter_time += total_item_duration
+            avg_time = cumulative_iter_time / processed_count
+            
+            # ETA calculation
+            remaining_items = total_handles - (i + 1)
+            eta_seconds = avg_time * remaining_items
+            eta_str = str(timedelta(seconds=int(eta_seconds)))
+
+            # One-line output
+            # 2026.Z Handle status ... err=- | Sleep: 31.2s (1.0x) | Rem: 45m (10/277)
+            log_line = (
+                f'{row["timestamp_utc"]}\t{row["handle"]}\t{row["status"]}\t'
+                f'posts={row["posts_count"] or "?"}\tvisible={row["has_visible_posts"] or "?"}\t'
+                f'err={row["error"] or "-"}'
+            )
+
+            sleep_info = f"Sleep: {actual_sleep:.1f}s ({backoff_multiplier}x)"
+            progress_info = f"[{i+1}/{total_handles}] ETA: {eta_str}"
+            
+            print(f"{log_line} | {sleep_info} | {progress_info}")
             time.sleep(actual_sleep)
 
 if __name__ == "__main__":
